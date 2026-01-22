@@ -12,8 +12,8 @@ app.use(cors({
 }));
 app.use(express.json());
 
-// Conexão MongoDB - SUA STRING AQUI
-const MONGODB_URI = process.env.MONGODB_URI || 'mongodb+srv://sahpribtt_db_user:PEpdVrjB491oEhnJA@glaydson.tdhamp8.mongodb.net/boletos?retryWrites=true&w=majority&appName=Glaydson';
+// Conexão MongoDB
+const MONGODB_URI = process.env.MONGODB_URI;
 
 mongoose.connect(MONGODB_URI)
   .then(() => console.log('✅ MongoDB Atlas conectado!'))
@@ -35,9 +35,9 @@ const clienteSchema = new mongoose.Schema({
 
 const Cliente = mongoose.model('Cliente', clienteSchema);
 
-// ========== ROTAS DA API ==========
+// ========== ROTAS ==========
 
-// 1. LISTAR TODOS OS CLIENTES
+// 1. LISTAR CLIENTES
 app.get('/api/clientes', async (req, res) => {
     try {
         const clientes = await Cliente.find().sort({ vencimento: 1 });
@@ -47,7 +47,7 @@ app.get('/api/clientes', async (req, res) => {
     }
 });
 
-// 2. ADICIONAR NOVO CLIENTE
+// 2. ADICIONAR CLIENTE
 app.post('/api/clientes', async (req, res) => {
     try {
         const { nome, telefone, vencimento, valor } = req.body;
@@ -61,8 +61,7 @@ app.post('/api/clientes', async (req, res) => {
 
         await cliente.save();
         
-        // SIMULAR ENVIO DE WHATSAPP
-        console.log(`📱 WhatsApp simulado para ${telefone}: Boleto de R$ ${valor} para ${nome}`);
+        console.log(`✅ Cliente salvo: ${nome} - R$ ${valor}`);
         
         res.json({ 
             success: true, 
@@ -74,7 +73,7 @@ app.post('/api/clientes', async (req, res) => {
     }
 });
 
-// 3. ATUALIZAR STATUS (PAGO/ATRASADO)
+// 3. ATUALIZAR STATUS
 app.put('/api/clientes/:id/status', async (req, res) => {
     try {
         const { status } = req.body;
@@ -106,9 +105,18 @@ app.get('/api/test', (req, res) => {
     });
 });
 
+// ROTA RAIZ
+app.get('/', (req, res) => {
+    res.json({ 
+        message: 'Backend Sistema de Boletos',
+        endpoints: {
+            clientes: '/api/clientes',
+            test: '/api/test'
+        }
+    });
+});
+
 // Iniciar servidor
 app.listen(PORT, () => {
-    console.log(`🚀 Backend rodando: http://localhost:${PORT}`);
-    console.log(`📊 MongoDB: Conectado`);
-    console.log(`🔗 API: http://localhost:${PORT}/api/test`);
+    console.log(`🚀 Backend rodando na porta ${PORT}`);
 });
