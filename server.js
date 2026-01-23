@@ -123,132 +123,40 @@ const upload = multer({
 });
 
 // ============================================
-// 5. CONFIGURAÇÃO Z-API WHATSAPP 🔧 (ALTERE AQUI!)
+// 5. CONFIGURAÇÃO VENOM WHATSAPP (SIMPLES!)
 // ============================================
 
-// ⚠️ ⚠️ ⚠️ ATENÇÃO: Configure estas variáveis no Render Dashboard ⚠️ ⚠️ ⚠️
-// NÃO coloque as credenciais diretamente no código!
-// Vá em Render.com → Seu serviço → Environment → Add Variable
-
-const ZAPI_INSTANCE_ID = process.env.ZAPI_INSTANCE_ID || '3EDA88A2D647214BD1661AA3C48FFF2B';
-const ZAPI_TOKEN = process.env.ZAPI_TOKEN || '1D69AC03D290655DAF386BF7';
-
-// Função para verificar se Z-API está configurado
-function isZAPIConfigured() {
-  const hasConfig = ZAPI_INSTANCE_ID && ZAPI_TOKEN && 
-                   ZAPI_INSTANCE_ID !== '3EDA88A2D647214BD1661AA3C48FFF2B' && 
-                   ZAPI_TOKEN !== '1D69AC03D290655DAF386BF7';
-  
-  console.log('🔧 Verificação Z-API:', {
-    temInstanceId: !!ZAPI_INSTANCE_ID,
-    temToken: !!ZAPI_TOKEN,
-    instanceIdValido: ZAPI_INSTANCE_ID !== '3EDA88A2D647214BD1661AA3C48FFF2B',
-    tokenValido: ZAPI_TOKEN !== '1D69AC03D290655DAF386BF7',
-    configurado: hasConfig
-  });
-  
-  return hasConfig;
-}
-
-// ============================================
-// 6. FUNÇÃO PRINCIPAL PARA ENVIAR WHATSAPP
-// ============================================
+// Função principal para enviar WhatsApp AGORA COM VENOM
 async function enviarWhatsapp(numero, mensagem, arquivoPath = null) {
   console.log('='.repeat(60));
-  console.log('📱 INICIANDO ENVIO WHATSAPP');
+  console.log('📱 ENVIANDO WHATSAPP VIA VENOM');
   console.log('='.repeat(60));
   
-  const zapiConfigurado = isZAPIConfigured();
-  console.log(`🔧 Z-API Configurado: ${zapiConfigurado ? '✅ SIM' : '❌ NÃO'}`);
-  
-  // Tenta Z-API primeiro (se configurado)
-  if (zapiConfigurado) {
-    console.log('🔄 Tentando Z-API REAL...');
-    const resultadoZAPI = await enviarWhatsappZAPI(numero, mensagem, arquivoPath);
-    
-    if (resultadoZAPI.success && resultadoZAPI.provider === 'Z-API') {
-      console.log('✅ WhatsApp REAL enviado via Z-API!');
-      return resultadoZAPI;
-    }
-    
-    console.log('⚠️ Z-API falhou, usando simulação...');
-  } else {
-    console.log('🔧 Z-API não configurado, usando simulação...');
-  }
-  
-  // Fallback para simulação
-  return enviarWhatsappSimulado(numero, mensagem, arquivoPath);
-}
-
-// ============================================
-// 7. FUNÇÃO Z-API REAL
-// ============================================
-async function enviarWhatsappZAPI(numero, mensagem, arquivoPath = null) {
   try {
-    console.log('📤 Preparando envio Z-API...');
+    console.log(`📞 Para: ${numero}`);
+    console.log(`💬 Mensagem: ${mensagem.substring(0, 100)}...`);
     
-    // Formatar número (remove + e caracteres não numéricos)
-    const numeroFormatado = numero.replace(/^\+/, '').replace(/\D/g, '');
+    // Usa o Venom para enviar
+    const resultado = await venom.sendText(numero, mensagem);
     
-    // URL da API Z-API (⚠️ USE SUAS CREDENCIAIS AQUI!)
-    const ZAPI_URL = `https://api.z-api.io/instances/${ZAPI_INSTANCE_ID}/token/${ZAPI_TOKEN}/send-text`;
-    
-    console.log('🔗 URL Z-API:', ZAPI_URL.replace(ZAPI_TOKEN, '***OCULTO***'));
-    console.log('📞 Número formatado:', numeroFormatado);
-    console.log('💬 Mensagem (primeiros 100 chars):', mensagem.substring(0, 100) + '...');
-    
-    const payload = {
-      phone: numeroFormatado,
-      message: mensagem
-    };
-    
-    // Se tiver arquivo, mencionar na mensagem
-    if (arquivoPath && fs.existsSync(arquivoPath)) {
-      const fileName = path.basename(arquivoPath);
-      payload.message += `\n\n📎 Anexo: ${fileName}`;
-      console.log('📎 Arquivo anexado:', fileName);
-    }
-    
-    console.log('🚀 Enviando para Z-API...');
-    const response = await fetch(ZAPI_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Client-Token': ZAPI_TOKEN
-      },
-      body: JSON.stringify(payload)
-    });
-    
-    console.log('📊 Status resposta:', response.status);
-    const resultado = await response.json();
-    console.log('📦 Resposta Z-API:', resultado);
-    
-    if (response.ok && resultado) {
-      console.log('🎉 Z-API SUCESSO! Mensagem enviada.');
-      
+    if (resultado.success) {
+      console.log('✅ WhatsApp REAL enviado via Venom!');
       return {
         success: true,
-        messageId: resultado.id || resultado.messageId || `ZAPI-${Date.now()}`,
+        messageId: resultado.messageId,
         status: 'ENVIADO',
-        provider: 'Z-API',
+        provider: 'VENOM',
         real: true,
-        timestamp: new Date().toISOString(),
-        rawResponse: resultado
+        timestamp: new Date().toISOString()
       };
     } else {
-      console.error('❌ Z-API ERRO:', resultado);
-      throw new Error(resultado.message || resultado.error || 'Erro desconhecido do Z-API');
+      console.log('⚠️ Venom falhou, usando simulação...');
+      return enviarWhatsappSimulado(numero, mensagem, arquivoPath);
     }
     
   } catch (error) {
-    console.error('💥 ERRO Z-API:', error.message);
-    return {
-      success: false,
-      error: error.message,
-      fake: true,
-      fallback: true,
-      provider: 'Z-API (falhou)'
-    };
+    console.error('❌ ERRO Venom:', error.message);
+    return enviarWhatsappSimulado(numero, mensagem, arquivoPath);
   }
 }
 
