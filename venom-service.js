@@ -1,4 +1,4 @@
-// venom-service.js
+// venom-service.js - COLE TODO ESTE CÓDIGO
 const venom = require('venom-bot');
 const qrcode = require('qrcode-terminal');
 const fs = require('fs');
@@ -29,7 +29,7 @@ class VenomService {
                     console.log('🟡 QR Code recebido!');
                     this.qrCode = base64Qr;
                     
-                    // Mostra QR no terminal (útil para Render logs)
+                    // Mostra QR no terminal
                     console.log('Escaneie o QR Code abaixo:');
                     qrcode.generate(asciiQR, { small: true });
                     
@@ -43,7 +43,7 @@ class VenomService {
                     if (statusSession === 'isLogged' || statusSession === 'qrReadSuccess' || statusSession === 'chatsAvailable') {
                         console.log('✅ WhatsApp CONECTADO!');
                         this.isConnected = true;
-                        this.qrCode = null; // Limpa QR após conectar
+                        this.qrCode = null;
                     }
                     
                     if (statusSession === 'browserClose' || statusSession === 'serverClose') {
@@ -52,14 +52,14 @@ class VenomService {
                     }
                 },
                 {
-                    folderNameToken: 'tokens', // Pasta para salvar sessão
-                    mkdirFolderToken: '', // Usa pasta atual
-                    headless: true, // Modo sem interface
+                    folderNameToken: 'tokens',
+                    mkdirFolderToken: '',
+                    headless: true,
                     devtools: false,
                     useChrome: true,
                     debug: false,
                     logQR: true,
-                    browserWS: '', // WebSocket do browser
+                    browserWS: '',
                     browserArgs: [
                         '--no-sandbox',
                         '--disable-setuid-sandbox',
@@ -102,7 +102,6 @@ class VenomService {
         try {
             if (!this.client) {
                 await this.start();
-                // Aguarda conexão
                 await new Promise(resolve => setTimeout(resolve, 5000));
             }
             
@@ -134,8 +133,7 @@ class VenomService {
             console.error('❌ Erro ao enviar mensagem:', error);
             return { 
                 success: false, 
-                error: error.message,
-                needsReconnect: error.message.includes('not connected')
+                error: error.message
             };
         }
     }
@@ -148,41 +146,6 @@ class VenomService {
             hasClient: !!this.client,
             sessionPath: this.sessionPath
         };
-    }
-
-    // Envia mensagem com imagem (para boletos)
-    async sendImage(number, imagePath, caption = '') {
-        try {
-            if (!this.client || !this.isConnected) {
-                return { success: false, error: 'Não conectado' };
-            }
-            
-            const formattedNumber = number.includes('@c.us') 
-                ? number 
-                : `${number}@c.us`;
-            
-            // Se imagePath for base64
-            if (imagePath.startsWith('data:image')) {
-                const result = await this.client.sendImageFromBase64(
-                    formattedNumber,
-                    imagePath.split(',')[1], // Remove data:image/...;base64,
-                    'boleto.png',
-                    caption
-                );
-                return { success: true, messageId: result.id };
-            } else {
-                // Se for caminho de arquivo
-                const result = await this.client.sendImage(
-                    formattedNumber,
-                    imagePath,
-                    'boleto.png',
-                    caption
-                );
-                return { success: true, messageId: result.id };
-            }
-        } catch (error) {
-            return { success: false, error: error.message };
-        }
     }
 }
 
