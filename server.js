@@ -2,7 +2,7 @@
 // SERVER.JS - Sistema de Gestão de Boletos WhatsApp
 // Backend com MongoDB e WhatsApp REAL via Z-API
 // ============================================
-
+const venom = require('./venom-service');
 require('dotenv').config();
 const express = require('express');
 const mongoose = require('mongoose');
