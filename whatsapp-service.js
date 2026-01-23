@@ -1,8 +1,14 @@
-// whatsapp-service.js - SERVIÇO WHATSAPP FUNCIONAL
+// whatsapp-service.js - VERSÃO PARA RENDER
 const { Client, LocalAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode');
 const fs = require('fs');
 const path = require('path');
+
+// Para Render, precisamos de configuração especial
+const isRender = process.env.RENDER || false;
+const chromePath = isRender 
+  ? '/usr/bin/google-chrome-stable'  // Caminho no Render
+  : null;
 
 class WhatsAppService {
     constructor() {
@@ -23,26 +29,35 @@ class WhatsAppService {
     }
 
     initClient() {
-        console.log('🟡 Inicializando WhatsApp Web...');
+        console.log('🟡 Inicializando WhatsApp Web no Render...');
+        
+        // Configuração especial para Render
+        const puppeteerOptions = {
+            headless: true,
+            args: [
+                '--no-sandbox',
+                '--disable-setuid-sandbox',
+                '--disable-dev-shm-usage',
+                '--disable-accelerated-2d-canvas',
+                '--disable-gpu',
+                '--no-first-run',
+                '--no-zygote',
+                '--single-process'
+            ]
+        };
+        
+        // Se estiver no Render, usa Chrome instalado
+        if (chromePath) {
+            puppeteerOptions.executablePath = chromePath;
+            console.log('✅ Usando Chrome do Render:', chromePath);
+        }
         
         this.client = new Client({
             authStrategy: new LocalAuth({
                 clientId: "boleto-bot-render",
                 dataPath: path.join(__dirname, 'whatsapp_sessions')
             }),
-            puppeteer: {
-                headless: true,
-                args: [
-                    '--no-sandbox',
-                    '--disable-setuid-sandbox',
-                    '--disable-dev-shm-usage',
-                    '--disable-accelerated-2d-canvas',
-                    '--disable-gpu',
-                    '--no-first-run',
-                    '--no-zygote',
-                    '--single-process'
-                ]
-            },
+            puppeteer: puppeteerOptions,
             webVersionCache: {
                 type: 'remote',
                 remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2412.54.html'
@@ -59,7 +74,7 @@ class WhatsAppService {
                 this.lastQR = await qrcode.toDataURL(qr);
                 console.log('✅ QR Code convertido para base64');
                 
-                // Também mostra no terminal (útil para debug)
+                // Também mostra no terminal
                 const qrTerminal = require('qrcode-terminal');
                 qrTerminal.generate(qr, { small: true });
                 
@@ -77,37 +92,92 @@ class WhatsAppService {
             this.lastQR = null;
         });
 
-        // Evento Autenticado
+        // Eventos de status
         this.client.on('authenticated', () => {
             console.log('🔐 Autenticado!');
             this.connectionStatus = 'authenticated';
         });
 
-        // Evento Falha de Autenticação
         this.client.on('auth_failure', (msg) => {
             console.error('❌ Falha na autenticação:', msg);
             this.connectionStatus = 'auth_failure';
             this.isConnected = false;
         });
 
-        // Evento Desconectado
         this.client.on('disconnected', (reason) => {
             console.log('🔴 Desconectado:', reason);
             this.isConnected = false;
             this.connectionStatus = 'disconnected';
             
-            // Tenta reconectar após 5 segundos
+            // Tenta reconectar após 10 segundos
             setTimeout(() => {
                 console.log('🔄 Tentando reconectar...');
-                this.client.initialize();
-            }, 5000);
+                this.initClient();
+            }, 10000);
         });
 
-        // Inicializa o cliente
+        // Inicializa
+        this.client.initialize().catch(error => {
+            console.error('❌ Erro ao inicializar WhatsApp:', error);
+            
+            // Tenta novamente com fallback
+            if (error.message.includes('Chrome')) {
+                console.log('🔄 Tentando com configuração alternativa...');
+                this.initClientWithFallback();
+            }
+        });
+    }
+    
+    // Método fallback se a primeira tentativa falhar
+    initClientWithFallback() {
+        console.log('🔄 Usando configuração alternativa...');
+        
+        const puppeteerOptions = {
+            headless: true,
+            args: [
+                '--no-sandbox',
+                '--disable-setuid-sandbox',
+                '--disable-dev-shm-usage'
+            ]
+        };
+        
+        this.client = new Client({
+            authStrategy: new LocalAuth({
+                clientId: "boleto-bot-fallback",
+                dataPath: path.join(__dirname, 'whatsapp_sessions_fallback')
+            }),
+            puppeteer: puppeteerOptions
+        });
+        
+        // Copia os mesmos event handlers
+        this.client.on('qr', async (qr) => {
+            console.log('🟡 QR Code recebido (fallback)!');
+            this.qrCode = qr;
+            
+            try {
+                this.lastQR = await qrcode.toDataURL(qr);
+                console.log('✅ QR Code convertido para base64');
+                
+                const qrTerminal = require('qrcode-terminal');
+                qrTerminal.generate(qr, { small: true });
+                
+            } catch (error) {
+                console.error('❌ Erro ao gerar QR:', error);
+            }
+        });
+        
+        this.client.on('ready', () => {
+            console.log('✅ WhatsApp CONECTADO via fallback!');
+            this.isConnected = true;
+            this.connectionStatus = 'connected';
+            this.qrCode = null;
+            this.lastQR = null;
+        });
+        
         this.client.initialize();
     }
 
-    // Obtém QR Code atual
+    // Resto do código permanece igual...
     getQRCode() {
         if (this.qrCode && this.lastQR) {
             return {
@@ -134,10 +204,8 @@ class WhatsAppService {
         }
     }
 
-    // Envia mensagem de texto
     async sendText(number, message) {
         try {
-            // Verifica se está conectado
             if (!this.isConnected || !this.client) {
                 return {
                     success: false,
@@ -145,19 +213,16 @@ class WhatsAppService {
                 };
             }
 
-            // Formata o número (remove caracteres não numéricos e adiciona @c.us)
             const cleanNumber = number.replace(/\D/g, '');
             const formattedNumber = cleanNumber.includes('@c.us') 
                 ? cleanNumber 
                 : `${cleanNumber}@c.us`;
 
-            console.log(`📤 Enviando mensagem para: ${formattedNumber}`);
-            console.log(`📝 Mensagem: ${message.substring(0, 100)}...`);
+            console.log(`📤 Enviando para: ${formattedNumber}`);
             
-            // Envia a mensagem
             const result = await this.client.sendMessage(formattedNumber, message);
             
-            console.log('✅ Mensagem enviada com sucesso!');
+            console.log('✅ Mensagem enviada!');
             return {
                 success: true,
                 messageId: result.id.id,
@@ -174,7 +239,6 @@ class WhatsAppService {
         }
     }
 
-    // Obtém status do serviço
     getStatus() {
         return {
             connected: this.isConnected,
@@ -184,37 +248,6 @@ class WhatsAppService {
             timestamp: new Date().toISOString()
         };
     }
-
-    // Força nova geração de QR
-    async generateNewQR() {
-        try {
-            if (this.client) {
-                await this.client.destroy();
-                this.isConnected = false;
-                this.qrCode = null;
-                this.lastQR = null;
-                this.connectionStatus = 'disconnected';
-                
-                // Recria o cliente
-                this.initClient();
-                
-                return { 
-                    success: true, 
-                    message: 'Novo QR Code sendo gerado...' 
-                };
-            }
-            return { 
-                success: false, 
-                error: 'Cliente não inicializado' 
-            };
-        } catch (error) {
-            return {
-                success: false,
-                error: error.message
-            };
-        }
-    }
 }
 
-// Exporta uma única instância
 module.exports = new WhatsAppService();
