@@ -419,7 +419,37 @@ app.post('/api/venom/test', async (req, res) => {
     });
   }
 });
-
+// ROTA DEBUG VENOM
+app.get('/api/venom/debug', async (req, res) => {
+  try {
+    console.log('🔧 DEBUG: Iniciando Venom manualmente...');
+    
+    // Tenta iniciar
+    await venom.start();
+    
+    // Aguarda mais tempo
+    await new Promise(resolve => setTimeout(resolve, 10000));
+    
+    const status = venom.getStatus();
+    const qr = venom.getQRCode();
+    
+    res.json({
+      success: true,
+      status: status,
+      hasQR: !!qr,
+      qrAvailable: qr ? 'SIM' : 'NÃO',
+      message: status.connected ? 'CONECTADO' : 'AGUARDANDO QR',
+      timestamp: new Date().toISOString()
+    });
+    
+  } catch (error) {
+    res.json({
+      success: false,
+      error: error.message,
+      stack: error.stack
+    });
+  }
+});
 app.listen(PORT, () => {
   console.log('='.repeat(60));
   console.log('🚀 SERVIDOR INICIADO');
