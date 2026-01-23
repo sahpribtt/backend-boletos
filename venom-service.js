@@ -11,13 +11,11 @@ class VenomService {
         this.qrCode = null;
         this.sessionPath = path.join(__dirname, 'tokens', 'boleto-session');
         
-        // Garante que a pasta tokens existe
         if (!fs.existsSync(path.join(__dirname, 'tokens'))) {
             fs.mkdirSync(path.join(__dirname, 'tokens'), { recursive: true });
         }
     }
 
-    // Inicia a conexão com WhatsApp
     async start() {
         try {
             console.log('🟡 Iniciando Venom WhatsApp...');
@@ -27,10 +25,8 @@ class VenomService {
                 (base64Qr, asciiQR) => {
                     console.log('🟡 QR Code recebido!');
                     this.qrCode = base64Qr;
-                    
                     console.log('Escaneie o QR Code abaixo:');
                     qrcode.generate(asciiQR, { small: true });
-                    
                     this.lastQR = `data:image/png;base64,${base64Qr}`;
                 },
                 (statusSession) => {
@@ -81,7 +77,6 @@ class VenomService {
         }
     }
 
-    // Pega o QR Code atual
     getQRCode() {
         return this.qrCode 
             ? { 
@@ -92,7 +87,6 @@ class VenomService {
             : null;
     }
 
-    // Envia uma mensagem de texto
     async sendText(number, message) {
         try {
             if (!this.client) {
@@ -131,7 +125,6 @@ class VenomService {
         }
     }
 
-    // Verifica status
     getStatus() {
         return {
             connected: this.isConnected,
@@ -142,5 +135,4 @@ class VenomService {
     }
 }
 
-// Exporta uma única instância
 module.exports = new VenomService();
