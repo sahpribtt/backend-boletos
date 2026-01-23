@@ -134,7 +134,6 @@ async function enviarWhatsapp(numero, mensagem, arquivoPath = null) {
     console.log(`📞 Para: ${numero}`);
     console.log(`💬 Mensagem: ${mensagem.substring(0, 100)}...`);
     
-    // Usa o Venom para enviar
     const resultado = await venom.sendText(numero, mensagem);
     
     if (resultado.success) {
@@ -158,9 +157,6 @@ async function enviarWhatsapp(numero, mensagem, arquivoPath = null) {
   }
 }
 
-// ============================================
-// 6. FUNÇÃO WHATSAPP SIMULADO (FALLBACK)
-// ============================================
 async function enviarWhatsappSimulado(numero, mensagem, arquivoPath = null) {
   console.log('🔄 Usando WhatsApp SIMULADO...');
   
@@ -174,7 +170,6 @@ async function enviarWhatsappSimulado(numero, mensagem, arquivoPath = null) {
     provider: 'VENOM-FALLBACK'
   };
   
-  // Salvar log
   const logDir = 'whatsapp_logs';
   if (!fs.existsSync(logDir)) {
     fs.mkdirSync(logDir, { recursive: true });
@@ -207,10 +202,9 @@ async function enviarWhatsappSimulado(numero, mensagem, arquivoPath = null) {
 }
 
 // ============================================
-// 7. ROTAS DA API
+// 6. ROTAS DA API
 // ============================================
 
-// ROTA 1: Teste do servidor
 app.get('/api/test', (req, res) => {
   const venomStatus = venom.getStatus();
   
@@ -235,43 +229,6 @@ app.get('/api/test', (req, res) => {
   });
 });
 
-// ROTA 2: Status do WhatsApp
-app.get('/api/whatsapp-status', async (req, res) => {
-  const logsDir = 'whatsapp_logs';
-  let totalEnvios = 0;
-  let ultimosEnvios = [];
-  
-  // Ler logs
-  try {
-    const logFile = path.join(logsDir, 'envios.json');
-    if (fs.existsSync(logFile)) {
-      const logs = JSON.parse(fs.readFileSync(logFile, 'utf8'));
-      totalEnvios = logs.length;
-      ultimosEnvios = logs.slice(-5).reverse();
-    }
-  } catch (error) {
-    console.error('Erro ao ler logs:', error);
-  }
-  
-  const venomStatus = venom.getStatus();
-  
-  res.json({
-    provider: 'VENOM BOT',
-    connected: venomStatus.connected,
-    mode: venomStatus.connected ? 'REAL 🎉' : 'DESCONECTADO',
-    message: venomStatus.connected 
-      ? 'WhatsApp conectado via Venom!' 
-      : 'Conecte o WhatsApp em /api/venom/qr',
-    stats: {
-      totalEnvios,
-      hoje: new Date().toLocaleDateString('pt-BR')
-    },
-    ultimosEnvios,
-    venomStatus: venomStatus
-  });
-});
-
-// ROTA 3: Listar clientes
 app.get('/api/clientes', async (req, res) => {
   try {
     const clientes = await Cliente.find().sort({ vencimento: 1 });
@@ -281,7 +238,6 @@ app.get('/api/clientes', async (req, res) => {
   }
 });
 
-// ROTA 4: Criar cliente com WhatsApp
 app.post('/api/clientes', async (req, res) => {
   try {
     const { nome, telefone, vencimento, valor } = req.body;
@@ -303,7 +259,6 @@ app.post('/api/clientes', async (req, res) => {
     
     await cliente.save();
     
-    // Enviar WhatsApp
     const mensagem = `Olá ${cliente.nome}! ✅ Seu boleto foi cadastrado.\n\n` +
                     `💵 Valor: R$ ${cliente.valor}\n` +
                     `📅 Vencimento: ${cliente.vencimento.toLocaleDateString('pt-BR')}\n` +
@@ -312,7 +267,6 @@ app.post('/api/clientes', async (req, res) => {
     
     const whatsappResult = await enviarWhatsapp(cliente.telefone, mensagem);
     
-    // Atualizar cliente
     cliente.whatsappEnviado = true;
     cliente.dataEnvioWhatsapp = new Date();
     await cliente.save();
@@ -329,11 +283,8 @@ app.post('/api/clientes', async (req, res) => {
   }
 });
 
-// ROTA 5: Upload de PDF com WhatsApp
 app.post('/api/upload-boleto', upload.single('pdf'), async (req, res) => {
   try {
-    console.log('📥 Recebendo upload de boleto...');
-    
     const { nome, telefone, vencimento, valor } = req.body;
     
     if (!nome || !telefone || !vencimento || !valor) {
@@ -356,9 +307,7 @@ app.post('/api/upload-boleto', upload.single('pdf'), async (req, res) => {
     });
     
     await cliente.save();
-    console.log('✅ Cliente salvo no MongoDB:', cliente._id);
     
-    // Enviar WhatsApp
     const mensagem = `Olá ${nome}! 📄 Boleto cadastrado\n\n` +
                     `💵 Valor: R$ ${valor}\n` +
                     `📅 Vencimento: ${new Date(vencimento).toLocaleDateString('pt-BR')}\n` +
@@ -387,7 +336,6 @@ app.post('/api/upload-boleto', upload.single('pdf'), async (req, res) => {
     });
     
   } catch (error) {
-    console.error('❌ Erro no upload:', error);
     if (req.file && fs.existsSync(req.file.path)) {
       fs.unlinkSync(req.file.path);
     }
@@ -398,127 +346,12 @@ app.post('/api/upload-boleto', upload.single('pdf'), async (req, res) => {
   }
 });
 
-// ROTA 6: Enviar WhatsApp para cliente específico
-app.post('/api/enviar-whatsapp/:id', async (req, res) => {
-  try {
-    const cliente = await Cliente.findById(req.params.id);
-    if (!cliente) {
-      return res.status(404).json({ error: 'Cliente não encontrado' });
-    }
-    
-    const mensagem = `Olá ${cliente.nome}! ⏰ Lembrete de boleto\n\n` +
-                    `💵 Valor: R$ ${cliente.valor}\n` +
-                    `📅 Vencimento: ${cliente.vencimento.toLocaleDateString('pt-BR')}\n` +
-                    `📋 Status: ${cliente.status}\n\n` +
-                    `Por favor, regularize seu pagamento.`;
-    
-    const resultado = await enviarWhatsapp(cliente.telefone, mensagem, cliente.pdfPath);
-    
-    if (resultado.success) {
-      cliente.whatsappEnviado = true;
-      cliente.dataEnvioWhatsapp = new Date();
-      await cliente.save();
-    }
-    
-    res.json({
-      success: resultado.success,
-      message: `WhatsApp ${resultado.real ? 'REAL 🎉' : 'simulado'} enviado!`,
-      cliente: {
-        _id: cliente._id,
-        nome: cliente.nome,
-        telefone: cliente.telefone
-      },
-      whatsapp: resultado
-    });
-    
-  } catch (error) {
-    res.status(500).json({ error: 'Erro ao enviar WhatsApp', details: error.message });
-  }
-});
-
-// ROTA 7: Marcar como pago
-app.put('/api/clientes/:id/pago', async (req, res) => {
-  try {
-    const cliente = await Cliente.findByIdAndUpdate(
-      req.params.id,
-      { status: 'PAGO', nivelAlerta: 'NORMAL' },
-      { new: true }
-    );
-    
-    if (!cliente) {
-      return res.status(404).json({ error: 'Cliente não encontrado' });
-    }
-    
-    // Enviar mensagem de agradecimento
-    const mensagem = `Olá ${cliente.nome}! 🎉 Pagamento confirmado!\n\n` +
-                    `✅ Boleto de R$ ${cliente.valor} foi pago.\n` +
-                    `📅 Vencimento: ${cliente.vencimento.toLocaleDateString('pt-BR')}\n` +
-                    `🙏 Obrigado pela pontualidade!`;
-    
-    const whatsappResult = await enviarWhatsapp(cliente.telefone, mensagem);
-    
-    res.json({
-      success: true,
-      message: `Boleto marcado como PAGO! Agradecimento ${whatsappResult.real ? 'REAL 🎉' : 'simulado'} enviado.`,
-      cliente,
-      whatsapp: whatsappResult
-    });
-    
-  } catch (error) {
-    res.status(500).json({ error: 'Erro ao atualizar status', details: error.message });
-  }
-});
-
-// ROTA 8: Ver logs WhatsApp
-app.get('/api/whatsapp-logs', (req, res) => {
-  try {
-    const logFile = path.join('whatsapp_logs', 'envios.json');
-    if (!fs.existsSync(logFile)) {
-      return res.json({ 
-        total: 0, 
-        logs: [],
-        message: 'Nenhum envio registrado ainda'
-      });
-    }
-    
-    const logs = JSON.parse(fs.readFileSync(logFile, 'utf8'));
-    res.json({ 
-      total: logs.length, 
-      logs: logs.reverse(),
-      summary: {
-        reais: logs.filter(l => l.provider === 'VENOM').length,
-        simulados: logs.filter(l => l.provider === 'VENOM-FALLBACK').length
-      }
-    });
-  } catch (error) {
-    res.status(500).json({ error: 'Erro ao ler logs', details: error.message });
-  }
-});
-
-// ROTA 9: Servir arquivos
-app.get('/api/uploads/:file', (req, res) => {
-  const filePath = path.join(__dirname, 'uploads', req.params.file);
-  if (fs.existsSync(filePath)) {
-    res.sendFile(filePath);
-  } else {
-    res.status(404).json({ error: 'Arquivo não encontrado' });
-  }
-});
-
-// ============================================
-// 8. ROTAS VENOM (PARA CONECTAR WHATSAPP)
-// ============================================
-
-// ROTA para obter QR Code
 app.get('/api/venom/qr', async (req, res) => {
   try {
     const qrData = venom.getQRCode();
     
     if (!qrData) {
-      // Inicia WhatsApp
       await venom.start();
-      
-      // Aguarda 3 segundos
       await new Promise(resolve => setTimeout(resolve, 3000));
       
       const newQrData = venom.getQRCode();
@@ -552,7 +385,6 @@ app.get('/api/venom/qr', async (req, res) => {
   }
 });
 
-// ROTA para status do Venom
 app.get('/api/venom/status', (req, res) => {
   const status = venom.getStatus();
   res.json({
@@ -566,7 +398,6 @@ app.get('/api/venom/status', (req, res) => {
   });
 });
 
-// ROTA para enviar teste direto
 app.post('/api/venom/test', async (req, res) => {
   try {
     const { number, message } = req.body;
@@ -589,30 +420,6 @@ app.post('/api/venom/test', async (req, res) => {
   }
 });
 
-// ROTA para desconectar Venom
-app.post('/api/venom/logout', async (req, res) => {
-  try {
-    if (venom.client) {
-      await venom.client.logout();
-    }
-    venom.isConnected = false;
-    venom.client = null;
-    
-    res.json({
-      success: true,
-      message: 'Desconectado com sucesso'
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      error: error.message
-    });
-  }
-});
-
-// ============================================
-// 9. INICIAR SERVIDOR
-// ============================================
 app.listen(PORT, () => {
   console.log('='.repeat(60));
   console.log('🚀 SERVIDOR INICIADO');
@@ -630,13 +437,4 @@ app.listen(PORT, () => {
   console.log('2. Escaneie o QR Code com seu celular');
   console.log('3. Aguarde confirmação de conexão');
   console.log('='.repeat(60));
-});
-
-// Tratamento de erros
-process.on('uncaughtException', (error) => {
-  console.error('❌ Erro não capturado:', error);
-});
-
-process.on('unhandledRejection', (error) => {
-  console.error('❌ Promise rejeitada não tratada:', error);
 });
