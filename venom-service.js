@@ -9,6 +9,7 @@ class VenomService {
         this.client = null;
         this.isConnected = false;
         this.qrCode = null;
+        this.lastQR = null;
         this.sessionPath = path.join(__dirname, 'tokens', 'boleto-session');
         
         if (!fs.existsSync(path.join(__dirname, 'tokens'))) {
@@ -60,17 +61,18 @@ class VenomService {
                         '--no-zygote',
                         '--disable-gpu'
                     ],
-                   createPathFileToken: true,
-addBrowserArgs: ['--disable-web-security'],
-disableSpins: true,
-disableWelcome: true,
-updatesLog: false,
-autoClose: false,
-logQR: false,
-puppeteerOptions: {
-  args: ['--no-sandbox', '--disable-setuid-sandbox']
-}
-            
+                    createPathFileToken: true,
+                    addBrowserArgs: ['--disable-web-security'],
+                    disableSpins: true,
+                    disableWelcome: true,
+                    updatesLog: false,
+                    autoClose: false,
+                    puppeteerOptions: {
+                        args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
+                    }
+                } // ← ESTE ERA O } QUE ESTAVA FALTANDO!
+            ); // ← FIM DO venom.create()
+
             console.log('✅ Venom inicializado com sucesso!');
             return this.client;
             
