@@ -1,6 +1,6 @@
 // ============================================
 // SERVER.JS - Sistema de Gestão de Boletos WhatsApp
-// Backend completo com MongoDB, WhatsApp e CORS
+// Backend completo com MongoDB, WhatsApp SIMULADO e CORS
 // ============================================
 
 require('dotenv').config();
@@ -10,13 +10,6 @@ const cors = require('cors');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
-const { exec } = require('child_process');
-const { promisify } = require('util');
-const execAsync = promisify(exec);
-
-// Configuração do WhatsApp (venom-bot)
-const venom = require('venom-bot');
-let whatsappClient = null;
 
 // Inicializar Express
 const app = express();
@@ -102,28 +95,154 @@ const Cliente = mongoose.model('Cliente', ClienteSchema);
 // ============================================
 // 4. CONFIGURAÇÃO MULTER (UPLOAD DE PDF)
 // ============================================
-// ROTA 4: Upload de PDF e cadastro de cliente (VERSÃO CORRIGIDA)
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const uploadDir = 'uploads/';
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+    cb(null, uploadDir);
+  },
+  filename: (req, file, cb) => {
+    const uniqueName = `${Date.now()}-${Math.round(Math.random() * 1E9)}${path.extname(file.originalname)}`;
+    cb(null, uniqueName);
+  }
+});
+
+const upload = multer({
+  storage: storage,
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
+  fileFilter: (req, file, cb) => {
+    const allowedTypes = /pdf|jpeg|jpg|png/;
+    const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
+    const mimetype = allowedTypes.test(file.mimetype);
+    
+    if (mimetype && extname) {
+      return cb(null, true);
+    } else {
+      cb(new Error('Apenas arquivos PDF, JPEG, JPG e PNG são permitidos!'));
+    }
+  }
+});
+
+// ============================================
+// 5. WHATSAPP SIMULADO (FUNCIONAL PARA TESTES)
+// ============================================
+
+console.log('✅ WhatsApp em modo simulação (Render não suporta venom-bot)');
+
+// ============================================
+// 6. FUNÇÃO PARA ENVIAR WHATSAPP SIMULADO
+// ============================================
+async function enviarWhatsapp(numero, mensagem, arquivoPath = null) {
+  console.log('='.repeat(60));
+  console.log('📱 WHATSAPP SIMULADO - REGISTRO DO ENVIO:');
+  console.log('='.repeat(60));
+  console.log(`👤 Para: ${numero}`);
+  console.log(`💬 Mensagem: ${mensagem}`);
+  console.log(`📎 Anexo: ${arquivoPath ? 'Sim (' + path.basename(arquivoPath) + ')' : 'Não'}`);
+  console.log(`⏰ Data/Hora: ${new Date().toLocaleString('pt-BR')}`);
+  console.log('='.repeat(60));
+  
+  // Salvar log em arquivo
+  const logDir = 'whatsapp_logs';
+  if (!fs.existsSync(logDir)) {
+    fs.mkdirSync(logDir, { recursive: true });
+  }
+  
+  const logEntry = {
+    id: 'SIM-' + Date.now(),
+    numero,
+    mensagem,
+    arquivo: arquivoPath ? path.basename(arquivoPath) : null,
+    timestamp: new Date().toISOString(),
+    status: 'SIMULADO'
+  };
+  
+  const logFile = path.join(logDir, 'envios.json');
+  let logs = [];
+  
+  if (fs.existsSync(logFile)) {
+    logs = JSON.parse(fs.readFileSync(logFile, 'utf8'));
+  }
+  
+  logs.push(logEntry);
+  fs.writeFileSync(logFile, JSON.stringify(logs, null, 2));
+  
+  console.log('✅ Registro salvo em:', logFile);
+  
+  return {
+    success: true,
+    messageId: logEntry.id,
+    status: 'SIMULADO',
+    fake: true,
+    logEntry: logEntry,
+    message: 'WhatsApp simulado para testes. Em produção, configure Twilio/Z-API.'
+  };
+}
+
+// ============================================
+// 7. ROTAS DA API
+// ============================================
+
+// ROTA 1: Teste do servidor
+app.get('/api/test', (req, res) => {
+  res.json({
+    message: '✅ Sistema de Boletos WhatsApp funcionando!',
+    timestamp: new Date().toISOString(),
+    mongodb: mongoose.connection.readyState === 1 ? 'Conectado' : 'Desconectado',
+    whatsapp: 'SIMULADO (para testes)',
+    avisos: 'Ativo (verificação diária às 9h)',
+    cors: 'Configurado para Netlify',
+    instrucoes: 'Para WhatsApp real: Configure Twilio ou Z-API'
+  });
+});
+
+// ROTA 2: Listar todos os clientes
+app.get('/api/clientes', async (req, res) => {
+  try {
+    const clientes = await Cliente.find().sort({ vencimento: 1 });
+    res.json(clientes);
+  } catch (error) {
+    res.status(500).json({ error: 'Erro ao buscar clientes', details: error.message });
+  }
+});
+
+// ROTA 3: Criar novo cliente
+app.post('/api/clientes', async (req, res) => {
+  try {
+    const cliente = new Cliente(req.body);
+    await cliente.save();
+    
+    // Simular envio WhatsApp
+    const mensagem = `Olá ${cliente.nome}! Seu boleto no valor de R$ ${cliente.valor} foi cadastrado. Vencimento: ${cliente.vencimento.toLocaleDateString('pt-BR')}.`;
+    await enviarWhatsapp(cliente.telefone, mensagem);
+    
+    // Atualizar cliente
+    cliente.whatsappEnviado = true;
+    cliente.dataEnvioWhatsapp = new Date();
+    await cliente.save();
+    
+    res.status(201).json({
+      success: true,
+      message: 'Cliente cadastrado e WhatsApp simulado!',
+      cliente,
+      whatsappEnviado: true
+    });
+    
+  } catch (error) {
+    res.status(400).json({ error: 'Erro ao criar cliente', details: error.message });
+  }
+});
+
+// ROTA 4: Upload de PDF e cadastro de cliente
 app.post('/api/upload-boleto', upload.single('pdf'), async (req, res) => {
   try {
     console.log('📥 Recebendo upload...');
-    console.log('📁 Arquivo:', req.file);
-    console.log('📝 Body:', req.body);
     
-    // COM multer, os campos de formulário vêm em req.body normalmente
-    // Mas vamos garantir que estamos lendo corretamente
-    const { 
-      nome = req.body.nome,
-      telefone = req.body.telefone,
-      vencimento = req.body.vencimento,
-      valor = req.body.valor,
-      email = req.body.email,
-      cpf = req.body.cpf 
-    } = req.body;
-    
-    console.log('📊 Dados extraídos:', { nome, telefone, vencimento, valor });
+    const { nome, telefone, vencimento, valor, email, cpf } = req.body;
     
     if (!nome || !telefone || !vencimento || !valor) {
-      console.log('❌ Campos obrigatórios faltando');
       if (req.file) {
         fs.unlinkSync(req.file.path);
       }
@@ -149,24 +268,26 @@ app.post('/api/upload-boleto', upload.single('pdf'), async (req, res) => {
     await cliente.save();
     console.log('✅ Cliente salvo no MongoDB:', cliente._id);
     
-    // Enviar WhatsApp automaticamente (modo simulação no Render)
-    let whatsappEnviado = false;
+    // Enviar WhatsApp automaticamente (simulado)
+    let whatsappResultado = null;
+    
     if (req.file) {
-      console.log('📱 Simulando envio WhatsApp...');
-      // WhatsApp SIMULADO para Render
-      const mensagem = `Olá ${nome}! Seu boleto no valor de R$ ${valor} vence em ${vencimento}.`;
-      console.log('💬 Mensagem:', mensagem);
+      const mensagem = `Olá ${nome}! 📄 Seu boleto foi cadastrado.\n\n` +
+                      `💵 Valor: R$ ${valor}\n` +
+                      `📅 Vencimento: ${new Date(vencimento).toLocaleDateString('pt-BR')}\n` +
+                      `📎 Arquivo: ${req.file.originalname}`;
       
-      // Marcar como enviado (simulação)
+      whatsappResultado = await enviarWhatsapp(telefone, mensagem, req.file.path);
+      
+      // Atualizar cliente
       cliente.whatsappEnviado = true;
       cliente.dataEnvioWhatsapp = new Date();
       await cliente.save();
-      whatsappEnviado = true;
     }
     
     res.status(201).json({
       success: true,
-      message: 'Boleto cadastrado e enviado com sucesso!',
+      message: 'Boleto cadastrado e WhatsApp simulado!',
       cliente: {
         _id: cliente._id,
         nome: cliente.nome,
@@ -175,7 +296,8 @@ app.post('/api/upload-boleto', upload.single('pdf'), async (req, res) => {
         valor: cliente.valor,
         pdfPath: cliente.pdfPath
       },
-      whatsappEnviado,
+      whatsappEnviado: !!req.file,
+      whatsappResult: whatsappResultado,
       fileReceived: !!req.file
     });
     
@@ -186,189 +308,7 @@ app.post('/api/upload-boleto', upload.single('pdf'), async (req, res) => {
     }
     res.status(500).json({ 
       error: 'Erro ao processar boleto', 
-      details: error.message,
-      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
-    });
-  }
-});
-
-// ============================================
-// 5. INICIALIZAÇÃO DO WHATSAPP
-// ============================================
-async function iniciarWhatsApp() {
-  try {
-    whatsappClient = await venom.create({
-      session: 'bot-boletos',
-      headless: true,
-      useChrome: false,
-      logQR: true,
-      disableSpins: true,
-      disableWelcome: true,
-      updatesLog: false,
-      autoClose: 0,
-      browserArgs: ['--no-sandbox', '--disable-setuid-sandbox']
-    });
-    
-    console.log('✅ WhatsApp conectado com sucesso!');
-    return whatsappClient;
-  } catch (error) {
-    console.error('❌ Erro ao conectar WhatsApp:', error);
-    return null;
-  }
-}
-
-// Iniciar WhatsApp ao iniciar servidor
-iniciarWhatsApp();
-
-// ============================================
-// 6. FUNÇÃO PARA ENVIAR WHATSAPP
-// ============================================
-async function enviarWhatsapp(numero, mensagem, arquivoPath = null) {
-  try {
-    if (!whatsappClient) {
-      throw new Error('WhatsApp não está conectado');
-    }
-    
-    const numeroFormatado = numero.replace(/\D/g, '');
-    const numeroCompleto = `${numeroFormatado}@c.us`;
-    
-    let resultado;
-    
-    if (arquivoPath && fs.existsSync(arquivoPath)) {
-      // Enviar arquivo
-      const extensao = path.extname(arquivoPath).toLowerCase();
-      const isImage = ['.jpg', '.jpeg', '.png', '.gif'].includes(extensao);
-      const isPDF = extensao === '.pdf';
-      
-      if (isImage) {
-        resultado = await whatsappClient.sendImage(
-          numeroCompleto,
-          arquivoPath,
-          'boleto',
-          mensagem
-        );
-      } else if (isPDF) {
-        resultado = await whatsappClient.sendFile(
-          numeroCompleto,
-          arquivoPath,
-          'boleto.pdf',
-          mensagem
-        );
-      } else {
-        resultado = await whatsappClient.sendFile(
-          numeroCompleto,
-          arquivoPath,
-          path.basename(arquivoPath),
-          mensagem
-        );
-      }
-    } else {
-      // Enviar apenas mensagem
-      resultado = await whatsappClient.sendText(numeroCompleto, mensagem);
-    }
-    
-    console.log('✅ Mensagem WhatsApp enviada:', resultado);
-    return { success: true, messageId: resultado.id };
-    
-  } catch (error) {
-    console.error('❌ Erro ao enviar WhatsApp:', error);
-    return { success: false, error: error.message };
-  }
-}
-
-// ============================================
-// 7. ROTAS DA API
-// ============================================
-
-// ROTA 1: Teste do servidor
-app.get('/api/test', (req, res) => {
-  res.json({
-    message: '✅ Sistema de Boletos WhatsApp funcionando!',
-    timestamp: new Date().toISOString(),
-    mongodb: mongoose.connection.readyState === 1 ? 'Conectado' : 'Desconectado',
-    whatsapp: whatsappClient ? 'Conectado' : 'Desconectado',
-    avisos: 'Ativo (verificação diária às 9h)',
-    cors: 'Configurado para Netlify'
-  });
-});
-
-// ROTA 2: Listar todos os clientes
-app.get('/api/clientes', async (req, res) => {
-  try {
-    const clientes = await Cliente.find().sort({ vencimento: 1 });
-    res.json(clientes);
-  } catch (error) {
-    res.status(500).json({ error: 'Erro ao buscar clientes', details: error.message });
-  }
-});
-
-// ROTA 3: Criar novo cliente
-app.post('/api/clientes', async (req, res) => {
-  try {
-    const cliente = new Cliente(req.body);
-    await cliente.save();
-    res.status(201).json(cliente);
-  } catch (error) {
-    res.status(400).json({ error: 'Erro ao criar cliente', details: error.message });
-  }
-});
-
-// ROTA 4: Upload de PDF e cadastro de cliente
-app.post('/api/upload-boleto', upload.single('pdf'), async (req, res) => {
-  try {
-    const { nome, telefone, vencimento, valor, email, cpf } = req.body;
-    
-    if (!nome || !telefone || !vencimento || !valor) {
-      // Se houver arquivo, exclui para não ficar lixo
-      if (req.file) {
-        fs.unlinkSync(req.file.path);
-      }
-      return res.status(400).json({ 
-        error: 'Campos obrigatórios: nome, telefone, vencimento, valor' 
-      });
-    }
-    
-    // Criar cliente
-    const cliente = new Cliente({
-      nome,
-      telefone,
-      email,
-      cpf,
-      vencimento: new Date(vencimento),
-      valor: parseFloat(valor),
-      status: 'PENDENTE',
-      pdfPath: req.file ? req.file.path : null,
-      nivelAlerta: 'NORMAL'
-    });
-    
-    await cliente.save();
-    
-    // Enviar WhatsApp automaticamente
-    if (req.file && whatsappClient) {
-      const mensagem = `Olá ${nome}! Seu boleto no valor de R$ ${valor} vence em ${vencimento}.`;
-      await enviarWhatsapp(telefone, mensagem, req.file.path);
-      
-      // Atualizar cliente
-      cliente.whatsappEnviado = true;
-      cliente.dataEnvioWhatsapp = new Date();
-      await cliente.save();
-    }
-    
-    res.status(201).json({
-      success: true,
-      message: 'Boleto cadastrado e enviado com sucesso!',
-      cliente,
-      whatsappEnviado: !!req.file
-    });
-    
-  } catch (error) {
-    console.error('Erro no upload:', error);
-    if (req.file && fs.existsSync(req.file.path)) {
-      fs.unlinkSync(req.file.path);
-    }
-    res.status(500).json({ 
-      error: 'Erro ao processar boleto', 
-      details: error.message 
+      details: error.message
     });
   }
 });
@@ -382,11 +322,7 @@ app.post('/api/enviar-whatsapp/:id', async (req, res) => {
       return res.status(404).json({ error: 'Cliente não encontrado' });
     }
     
-    if (!cliente.pdfPath || !fs.existsSync(cliente.pdfPath)) {
-      return res.status(400).json({ error: 'PDF do boleto não encontrado' });
-    }
-    
-    const mensagem = `Olá ${cliente.nome}! Lembrete: seu boleto de R$ ${cliente.valor} vence em ${cliente.vencimento.toLocaleDateString()}.`;
+    const mensagem = `Olá ${cliente.nome}! Lembrete: seu boleto de R$ ${cliente.valor} vence em ${cliente.vencimento.toLocaleDateString('pt-BR')}.`;
     
     const resultado = await enviarWhatsapp(
       cliente.telefone,
@@ -402,11 +338,10 @@ app.post('/api/enviar-whatsapp/:id', async (req, res) => {
     
     res.json({
       success: resultado.success,
-      message: resultado.success 
-        ? 'Boleto enviado com sucesso!' 
-        : 'Erro ao enviar boleto',
+      message: 'Boleto simulado enviado com sucesso!',
       cliente,
-      whatsappResult: resultado
+      whatsappResult: resultado,
+      instrucoes: 'Para envio real, configure Twilio/Z-API'
     });
     
   } catch (error) {
@@ -433,9 +368,13 @@ app.put('/api/clientes/:id/pago', async (req, res) => {
       return res.status(404).json({ error: 'Cliente não encontrado' });
     }
     
+    // Enviar mensagem de agradecimento
+    const mensagem = `Olá ${cliente.nome}! ✅ Seu pagamento foi confirmado. Obrigado!`;
+    await enviarWhatsapp(cliente.telefone, mensagem);
+    
     res.json({
       success: true,
-      message: 'Boleto marcado como PAGO',
+      message: 'Boleto marcado como PAGO e agradecimento simulado!',
       cliente
     });
     
@@ -547,27 +486,40 @@ app.get('/api/verificar-vencimentos', async (req, res) => {
   }
 });
 
-// ROTA 10: Status do WhatsApp
+// ROTA 10: Status do WhatsApp Simulado
 app.get('/api/whatsapp-status', async (req, res) => {
+  const logsDir = 'whatsapp_logs';
+  let totalEnvios = 0;
+  let ultimosEnvios = [];
+  
   try {
-    const status = whatsappClient 
-      ? await whatsappClient.getConnectionState()
-      : 'DISCONNECTED';
-    
-    res.json({
-      connected: status === 'CONNECTED',
-      status: status,
-      qrCode: null,
-      sessionName: 'bot-boletos'
-    });
-    
+    const logFile = path.join(logsDir, 'envios.json');
+    if (fs.existsSync(logFile)) {
+      const logs = JSON.parse(fs.readFileSync(logFile, 'utf8'));
+      totalEnvios = logs.length;
+      ultimosEnvios = logs.slice(-5).reverse();
+    }
   } catch (error) {
-    res.json({
-      connected: false,
-      status: 'ERROR',
-      error: error.message
-    });
+    console.error('Erro ao ler logs:', error);
   }
+  
+  res.json({
+    provider: 'SIMULADO',
+    configured: true,
+    connected: true,
+    mode: 'TESTE (gratuito)',
+    message: 'WhatsApp em modo simulação. Para produção, configure Twilio/Z-API.',
+    stats: {
+      totalEnvios,
+      hoje: new Date().toLocaleDateString('pt-BR'),
+      ultimaAtualizacao: new Date().toISOString()
+    },
+    ultimosEnvios,
+    instrucoes: {
+      twilio: 'Para WhatsApp real: 1. Compre Twilio 2. Configure variáveis TWILIO_ACCOUNT_SID e TWILIO_AUTH_TOKEN',
+      zapi: 'Alternativa brasileira: Z-API.io (mais barato)'
+    }
+  });
 });
 
 // ROTA 11: Servir arquivos PDF
@@ -581,6 +533,30 @@ app.get('/api/pdf/:filename', (req, res) => {
   }
 });
 
+// ROTA 12: Ver logs dos envios simulados
+app.get('/api/whatsapp-logs', (req, res) => {
+  try {
+    const logFile = path.join('whatsapp_logs', 'envios.json');
+    
+    if (!fs.existsSync(logFile)) {
+      return res.json({
+        message: 'Nenhum envio registrado ainda',
+        logs: []
+      });
+    }
+    
+    const logs = JSON.parse(fs.readFileSync(logFile, 'utf8'));
+    
+    res.json({
+      total: logs.length,
+      logs: logs.reverse()
+    });
+    
+  } catch (error) {
+    res.status(500).json({ error: 'Erro ao ler logs', details: error.message });
+  }
+});
+
 // ============================================
 // 8. SERVIÇO AUTOMÁTICO DE AVISOS
 // ============================================
@@ -590,29 +566,25 @@ async function verificarAvisosAutomaticos() {
     const tresDias = new Date(hoje);
     tresDias.setDate(hoje.getDate() + 3);
     
-    // Buscar clientes com vencimento em 3 dias ou menos
     const clientesParaAvisar = await Cliente.find({
       vencimento: { $lte: tresDias, $gt: hoje },
       status: 'PENDENTE',
       whatsappEnviado: false
     });
     
-    console.log(`📢 Enviando avisos para ${clientesParaAvisar.length} clientes...`);
+    console.log(`📢 Simulando avisos para ${clientesParaAvisar.length} clientes...`);
     
     for (const cliente of clientesParaAvisar) {
-      if (cliente.pdfPath && whatsappClient) {
-        const diasParaVencer = Math.ceil((cliente.vencimento - hoje) / (1000 * 60 * 60 * 24));
-        const mensagem = `Olá ${cliente.nome}! Lembrete: seu boleto de R$ ${cliente.valor} vence em ${diasParaVencer} dia(s).`;
-        
-        await enviarWhatsapp(cliente.telefone, mensagem, cliente.pdfPath);
-        
-        cliente.whatsappEnviado = true;
-        cliente.dataEnvioWhatsapp = new Date();
-        await cliente.save();
-        
-        // Aguardar 2 segundos entre envios para não bloquear
-        await new Promise(resolve => setTimeout(resolve, 2000));
-      }
+      const diasParaVencer = Math.ceil((cliente.vencimento - hoje) / (1000 * 60 * 60 * 24));
+      const mensagem = `Olá ${cliente.nome}! ⏰ Lembrete: seu boleto de R$ ${cliente.valor} vence em ${diasParaVencer} dia(s).`;
+      
+      await enviarWhatsapp(cliente.telefone, mensagem, cliente.pdfPath);
+      
+      cliente.whatsappEnviado = true;
+      cliente.dataEnvioWhatsapp = new Date();
+      await cliente.save();
+      
+      await new Promise(resolve => setTimeout(resolve, 1000));
     }
     
   } catch (error) {
@@ -626,7 +598,7 @@ setInterval(() => {
   if (agora.getHours() === 9 && agora.getMinutes() === 0) {
     verificarAvisosAutomaticos();
   }
-}, 60000); // Verificar a cada minuto
+}, 60000);
 
 // Executar uma vez ao iniciar
 setTimeout(verificarAvisosAutomaticos, 10000);
@@ -639,6 +611,7 @@ app.listen(PORT, () => {
   console.log(`🌐 Acesse: http://localhost:${PORT}`);
   console.log(`🔗 API Test: http://localhost:${PORT}/api/test`);
   console.log(`✅ CORS configurado para: https://glaydsonsilva.netlify.app`);
+  console.log(`📱 WhatsApp: MODO SIMULAÇÃO (para testes)`);
 });
 
 // Tratamento de erros não capturados
