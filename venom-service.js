@@ -1,4 +1,4 @@
-// venom-service.js - COLE TODO ESTE CÓDIGO
+// venom-service.js - SERVIÇO WHATSAPP VIA VENOM BOT
 const venom = require('venom-bot');
 const qrcode = require('qrcode-terminal');
 const fs = require('fs');
@@ -23,21 +23,17 @@ class VenomService {
             console.log('🟡 Iniciando Venom WhatsApp...');
             
             this.client = await venom.create(
-                'boleto-session', // Nome da sessão
+                'boleto-session',
                 (base64Qr, asciiQR) => {
-                    // QR Code recebido
                     console.log('🟡 QR Code recebido!');
                     this.qrCode = base64Qr;
                     
-                    // Mostra QR no terminal
                     console.log('Escaneie o QR Code abaixo:');
                     qrcode.generate(asciiQR, { small: true });
                     
-                    // Converte para base64 para API
                     this.lastQR = `data:image/png;base64,${base64Qr}`;
                 },
                 (statusSession) => {
-                    // Status da sessão
                     console.log('📱 Status:', statusSession);
                     
                     if (statusSession === 'isLogged' || statusSession === 'qrReadSuccess' || statusSession === 'chatsAvailable') {
@@ -59,7 +55,6 @@ class VenomService {
                     useChrome: true,
                     debug: false,
                     logQR: true,
-                    browserWS: '',
                     browserArgs: [
                         '--no-sandbox',
                         '--disable-setuid-sandbox',
@@ -112,14 +107,12 @@ class VenomService {
                 };
             }
             
-            // Formata o número
             const formattedNumber = number.includes('@c.us') 
                 ? number 
                 : `${number}@c.us`;
             
             console.log(`📤 Enviando para ${formattedNumber}: ${message.substring(0, 50)}...`);
             
-            // Envia a mensagem
             const result = await this.client.sendText(formattedNumber, message);
             
             console.log('✅ Mensagem enviada!');
