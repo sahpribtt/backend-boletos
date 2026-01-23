@@ -1,6 +1,6 @@
 // ============================================
 // SERVER.JS - Sistema de Gestão de Boletos WhatsApp
-// Backend com MongoDB e WhatsApp REAL via Z-API
+// Backend com MongoDB e WhatsApp REAL via VENOM BOT
 // ============================================
 const venom = require('./venom-service');
 require('dotenv').config();
@@ -123,10 +123,8 @@ const upload = multer({
 });
 
 // ============================================
-// 5. CONFIGURAÇÃO VENOM WHATSAPP (SIMPLES!)
+// 5. FUNÇÃO PRINCIPAL PARA ENVIAR WHATSAPP (VENOM)
 // ============================================
-
-// Função principal para enviar WhatsApp AGORA COM VENOM
 async function enviarWhatsapp(numero, mensagem, arquivoPath = null) {
   console.log('='.repeat(60));
   console.log('📱 ENVIANDO WHATSAPP VIA VENOM');
@@ -161,7 +159,7 @@ async function enviarWhatsapp(numero, mensagem, arquivoPath = null) {
 }
 
 // ============================================
-// 8. FUNÇÃO WHATSAPP SIMULADO (FALLBACK)
+// 6. FUNÇÃO WHATSAPP SIMULADO (FALLBACK)
 // ============================================
 async function enviarWhatsappSimulado(numero, mensagem, arquivoPath = null) {
   console.log('🔄 Usando WhatsApp SIMULADO...');
@@ -173,7 +171,7 @@ async function enviarWhatsappSimulado(numero, mensagem, arquivoPath = null) {
     arquivo: arquivoPath ? path.basename(arquivoPath) : null,
     timestamp: new Date().toISOString(),
     status: 'SIMULADO',
-    provider: 'SIMULAÇÃO'
+    provider: 'VENOM-FALLBACK'
   };
   
   // Salvar log
@@ -204,37 +202,36 @@ async function enviarWhatsappSimulado(numero, mensagem, arquivoPath = null) {
     status: 'SIMULADO',
     fake: true,
     logEntry,
-    message: isZAPIConfigured() 
-      ? 'Z-API falhou, mensagem simulada' 
-      : 'Configure Z-API no Render Dashboard para envio real'
+    message: 'Venom não conectado, mensagem simulada'
   };
 }
 
 // ============================================
-// 9. ROTAS DA API
+// 7. ROTAS DA API
 // ============================================
 
 // ROTA 1: Teste do servidor
 app.get('/api/test', (req, res) => {
-  const zapiConfigurado = isZAPIConfigured();
+  const venomStatus = venom.getStatus();
   
   res.json({
     message: '✅ Sistema de Boletos WhatsApp funcionando!',
     timestamp: new Date().toISOString(),
     mongodb: mongoose.connection.readyState === 1 ? 'Conectado' : 'Desconectado',
-    whatsapp: zapiConfigurado ? 'Z-API Configurado 🎉' : 'SIMULADO (configure Z-API)',
-    zapiConfigured: zapiConfigurado,
-    zapiConfig: {
-      hasInstanceId: !!ZAPI_INSTANCE_ID,
-      hasToken: !!ZAPI_TOKEN,
-      instanceIdValid: ZAPI_INSTANCE_ID !== 'SUA_INSTANCE_ID_AQUI',
-      tokenValid: ZAPI_TOKEN !== 'SEU_TOKEN_AQUI'
-    },
+    whatsapp: venomStatus.connected ? '✅ CONECTADO (Venom)' : '🔴 DESCONECTADO',
+    venomStatus: venomStatus,
     avisos: 'Ativo (verificação diária às 9h)',
     cors: 'Configurado para Netlify',
-    instrucoes: zapiConfigurado 
-      ? 'WhatsApp REAL ativo via Z-API!' 
-      : 'Para WhatsApp real: Configure ZAPI_INSTANCE_ID e ZAPI_TOKEN no Render Dashboard'
+    instrucoes: venomStatus.connected 
+      ? 'WhatsApp conectado! Envie mensagens.' 
+      : 'Acesse /api/venom/qr para conectar WhatsApp',
+    endpoints: {
+      qr: '/api/venom/qr',
+      status: '/api/venom/status',
+      sendTest: '/api/venom/test',
+      clientes: '/api/clientes',
+      upload: '/api/upload-boleto'
+    }
   });
 });
 
@@ -243,7 +240,6 @@ app.get('/api/whatsapp-status', async (req, res) => {
   const logsDir = 'whatsapp_logs';
   let totalEnvios = 0;
   let ultimosEnvios = [];
-  let zapiTest = null;
   
   // Ler logs
   try {
@@ -257,59 +253,21 @@ app.get('/api/whatsapp-status', async (req, res) => {
     console.error('Erro ao ler logs:', error);
   }
   
-  // Testar Z-API se configurado
-  const zapiConfigurado = isZAPIConfigured();
-  if (zapiConfigurado) {
-    try {
-      const testUrl = `https://api.z-api.io/instances/${ZAPI_INSTANCE_ID}/token/${ZAPI_TOKEN}/status`;
-      const response = await fetch(testUrl, {
-        headers: { 'Client-Token': ZAPI_TOKEN }
-      });
-      
-      zapiTest = {
-        status: response.status,
-        ok: response.ok,
-        online: response.ok
-      };
-      
-      if (response.ok) {
-        const data = await response.json();
-        zapiTest.details = data;
-      }
-    } catch (error) {
-      zapiTest = { 
-        error: error.message,
-        online: false
-      };
-    }
-  }
+  const venomStatus = venom.getStatus();
   
   res.json({
-    provider: zapiConfigurado ? 'Z-API' : 'SIMULADO',
-    configured: zapiConfigurado,
-    connected: zapiConfigurado ? (zapiTest?.online || false) : true,
-    mode: zapiConfigurado ? 'REAL 🎉' : 'TESTE (simulado)',
-    message: zapiConfigurado 
-      ? 'Z-API configurado. WhatsApp REAL ativo!' 
-      : 'Configure Z-API no Render Dashboard para WhatsApp real.',
+    provider: 'VENOM BOT',
+    connected: venomStatus.connected,
+    mode: venomStatus.connected ? 'REAL 🎉' : 'DESCONECTADO',
+    message: venomStatus.connected 
+      ? 'WhatsApp conectado via Venom!' 
+      : 'Conecte o WhatsApp em /api/venom/qr',
     stats: {
       totalEnvios,
-      hoje: new Date().toLocaleDateString('pt-BR'),
-      zapiTest: zapiTest
+      hoje: new Date().toLocaleDateString('pt-BR')
     },
     ultimosEnvios,
-    configInfo: {
-      hasCredentials: !!ZAPI_INSTANCE_ID && !!ZAPI_TOKEN,
-      instanceIdPresent: ZAPI_INSTANCE_ID !== '3EDA88A2D647214BD1661AA3C48FFF2B',
-      tokenPresent: ZAPI_TOKEN !== '1D69AC03D290655DAF386BF7'
-    },
-    help: {
-      renderConfig: 'No Render Dashboard: Environment → Add Variable',
-      variablesNeeded: 'ZAPI_INSTANCE_ID e ZAPI_TOKEN',
-      testUrl: zapiConfigurado 
-        ? `https://backend-boletos-v2.onrender.com/api/test-zapi` 
-        : null
-    }
+    venomStatus: venomStatus
   });
 });
 
@@ -440,65 +398,7 @@ app.post('/api/upload-boleto', upload.single('pdf'), async (req, res) => {
   }
 });
 
-// ROTA 6: Testar Z-API diretamente
-app.get('/api/test-zapi', async (req, res) => {
-  const zapiConfigurado = isZAPIConfigured();
-  
-  if (!zapiConfigurado) {
-    return res.status(400).json({ 
-      success: false,
-      error: 'Z-API não configurado',
-      instrucoes: {
-        step1: 'Acesse Render Dashboard',
-        step2: 'Vá em Environment → Add Variable',
-        step3: 'Adicione: ZAPI_INSTANCE_ID = sua_instance_id',
-        step4: 'Adicione: ZAPI_TOKEN = seu_token',
-        step5: 'Redeploy e teste novamente'
-      },
-      currentConfig: {
-        instanceId: ZAPI_INSTANCE_ID,
-        token: ZAPI_TOKEN ? '***presente***' : 'ausente'
-      }
-    });
-  }
-  
-  try {
-    const testUrl = `https://api.z-api.io/instances/${ZAPI_INSTANCE_ID}/token/${ZAPI_TOKEN}/status`;
-    console.log('🔗 Testando Z-API:', testUrl.replace(ZAPI_TOKEN, '***'));
-    
-    const response = await fetch(testUrl, {
-      headers: { 'Client-Token': ZAPI_TOKEN }
-    });
-    
-    const status = await response.json();
-    
-    res.json({
-      success: response.ok,
-      statusCode: response.status,
-      zapiStatus: status,
-      config: {
-        instanceId: ZAPI_INSTANCE_ID ? '***' + ZAPI_INSTANCE_ID.slice(-8) : 'N/A',
-        hasToken: !!ZAPI_TOKEN,
-        tokenLength: ZAPI_TOKEN ? ZAPI_TOKEN.length : 0
-      },
-      message: response.ok 
-        ? '✅ Z-API conectado e funcionando!' 
-        : '❌ Z-API com problemas'
-    });
-    
-  } catch (error) {
-    res.status(500).json({ 
-      success: false, 
-      error: error.message,
-      config: {
-        instanceId: ZAPI_INSTANCE_ID ? '***' + ZAPI_INSTANCE_ID.slice(-8) : 'N/A',
-        hasToken: !!ZAPI_TOKEN
-      }
-    });
-  }
-});
-
-// ROTA 7: Enviar WhatsApp para cliente específico
+// ROTA 6: Enviar WhatsApp para cliente específico
 app.post('/api/enviar-whatsapp/:id', async (req, res) => {
   try {
     const cliente = await Cliente.findById(req.params.id);
@@ -536,7 +436,7 @@ app.post('/api/enviar-whatsapp/:id', async (req, res) => {
   }
 });
 
-// ROTA 8: Marcar como pago
+// ROTA 7: Marcar como pago
 app.put('/api/clientes/:id/pago', async (req, res) => {
   try {
     const cliente = await Cliente.findByIdAndUpdate(
@@ -569,7 +469,7 @@ app.put('/api/clientes/:id/pago', async (req, res) => {
   }
 });
 
-// ROTA 9: Ver logs WhatsApp
+// ROTA 8: Ver logs WhatsApp
 app.get('/api/whatsapp-logs', (req, res) => {
   try {
     const logFile = path.join('whatsapp_logs', 'envios.json');
@@ -586,8 +486,8 @@ app.get('/api/whatsapp-logs', (req, res) => {
       total: logs.length, 
       logs: logs.reverse(),
       summary: {
-        reais: logs.filter(l => l.provider === 'Z-API').length,
-        simulados: logs.filter(l => l.provider === 'SIMULAÇÃO').length
+        reais: logs.filter(l => l.provider === 'VENOM').length,
+        simulados: logs.filter(l => l.provider === 'VENOM-FALLBACK').length
       }
     });
   } catch (error) {
@@ -595,7 +495,7 @@ app.get('/api/whatsapp-logs', (req, res) => {
   }
 });
 
-// ROTA 10: Servir arquivos
+// ROTA 9: Servir arquivos
 app.get('/api/uploads/:file', (req, res) => {
   const filePath = path.join(__dirname, 'uploads', req.params.file);
   if (fs.existsSync(filePath)) {
@@ -606,32 +506,130 @@ app.get('/api/uploads/:file', (req, res) => {
 });
 
 // ============================================
-// 10. INICIAR SERVIDOR
+// 8. ROTAS VENOM (PARA CONECTAR WHATSAPP)
+// ============================================
+
+// ROTA para obter QR Code
+app.get('/api/venom/qr', async (req, res) => {
+  try {
+    const qrData = venom.getQRCode();
+    
+    if (!qrData) {
+      // Inicia WhatsApp
+      await venom.start();
+      
+      // Aguarda 3 segundos
+      await new Promise(resolve => setTimeout(resolve, 3000));
+      
+      const newQrData = venom.getQRCode();
+      
+      if (!newQrData) {
+        return res.json({
+          status: 'initializing',
+          message: 'Aguarde... recarregue em 5 segundos.',
+          refreshIn: 5
+        });
+      }
+      
+      return res.json({
+        status: 'qr_ready',
+        qrCode: newQrData.base64,
+        message: 'Escaneie com seu WhatsApp'
+      });
+    }
+    
+    res.json({
+      status: 'qr_ready',
+      qrCode: qrData.base64,
+      message: 'QR Code para WhatsApp'
+    });
+    
+  } catch (error) {
+    res.status(500).json({
+      status: 'error',
+      message: error.message
+    });
+  }
+});
+
+// ROTA para status do Venom
+app.get('/api/venom/status', (req, res) => {
+  const status = venom.getStatus();
+  res.json({
+    connected: status.connected,
+    hasQR: status.hasQR,
+    hasClient: status.hasClient,
+    timestamp: new Date().toISOString(),
+    instructions: !status.connected 
+      ? 'Conecte em: /api/venom/qr' 
+      : 'Pronto para enviar mensagens!'
+  });
+});
+
+// ROTA para enviar teste direto
+app.post('/api/venom/test', async (req, res) => {
+  try {
+    const { number, message } = req.body;
+    
+    if (!number || !message) {
+      return res.status(400).json({
+        success: false,
+        error: 'Número e mensagem são obrigatórios'
+      });
+    }
+    
+    const result = await venom.sendText(number, message);
+    res.json(result);
+    
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// ROTA para desconectar Venom
+app.post('/api/venom/logout', async (req, res) => {
+  try {
+    if (venom.client) {
+      await venom.client.logout();
+    }
+    venom.isConnected = false;
+    venom.client = null;
+    
+    res.json({
+      success: true,
+      message: 'Desconectado com sucesso'
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// ============================================
+// 9. INICIAR SERVIDOR
 // ============================================
 app.listen(PORT, () => {
-  const zapiConfigurado = isZAPIConfigured();
-  
   console.log('='.repeat(60));
   console.log('🚀 SERVIDOR INICIADO');
   console.log('='.repeat(60));
   console.log(`📡 Porta: ${PORT}`);
   console.log(`🌐 URL: http://localhost:${PORT}`);
   console.log(`🔗 API Test: http://localhost:${PORT}/api/test`);
-  console.log(`📱 WhatsApp: ${zapiConfigurado ? 'Z-API CONFIGURADO 🎉' : 'MODO SIMULAÇÃO'}`);
+  console.log(`📱 WhatsApp: VENOM BOT`);
+  console.log(`🔗 QR Code: http://localhost:${PORT}/api/venom/qr`);
   console.log(`✅ CORS: https://glaydsonsilva.netlify.app`);
   console.log(`💾 MongoDB: ${mongoose.connection.readyState === 1 ? 'Conectado' : 'Desconectado'}`);
   console.log('='.repeat(60));
-  
-  if (!zapiConfigurado) {
-    console.log('⚠️ ATENÇÃO: Z-API não configurado!');
-    console.log('📋 Para WhatsApp REAL:');
-    console.log('1. Acesse Render Dashboard');
-    console.log('2. Vá em Environment → Add Variable');
-    console.log('3. Adicione: ZAPI_INSTANCE_ID = sua_instance_id');
-    console.log('4. Adicione: ZAPI_TOKEN = seu_token');
-    console.log('5. Aguarde redeploy automático');
-    console.log('='.repeat(60));
-  }
+  console.log('📋 Para conectar WhatsApp:');
+  console.log(`1. Acesse: http://localhost:${PORT}/api/venom/qr`);
+  console.log('2. Escaneie o QR Code com seu celular');
+  console.log('3. Aguarde confirmação de conexão');
+  console.log('='.repeat(60));
 });
 
 // Tratamento de erros
