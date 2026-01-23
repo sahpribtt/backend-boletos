@@ -1,4 +1,4 @@
-// venom-service.js - SERVIÇO WHATSAPP VIA VENOM BOT
+// venom-service.js - VERSÃO COMPATÍVEL COM venom-bot 5.0.3
 const venom = require('venom-bot');
 const qrcode = require('qrcode-terminal');
 const fs = require('fs');
@@ -70,8 +70,8 @@ class VenomService {
                     puppeteerOptions: {
                         args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
                     }
-                } // ← ESTE ERA O } QUE ESTAVA FALTANDO!
-            ); // ← FIM DO venom.create()
+                }
+            );
 
             console.log('✅ Venom inicializado com sucesso!');
             return this.client;
