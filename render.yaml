@@ -2,11 +2,10 @@ services:
   - type: web
     name: backend-boletos-v2
     env: node
-    buildCommand: npm install
-    startCommand: node server.js
+    buildCommand: npm install && npm run install-chrome
+    startCommand: npm start
     envVars:
-      - key: NODE_ENV
-        value: production
-      - key: MONGODB_URI
-        sync: false
-    plan: free
+      - key: NODE_VERSION
+        value: 18.17.0
+      - key: RENDER
+        value: true
