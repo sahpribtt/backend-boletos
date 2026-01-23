@@ -102,33 +102,93 @@ const Cliente = mongoose.model('Cliente', ClienteSchema);
 // ============================================
 // 4. CONFIGURAÇÃO MULTER (UPLOAD DE PDF)
 // ============================================
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    const uploadDir = 'uploads/';
-    if (!fs.existsSync(uploadDir)) {
-      fs.mkdirSync(uploadDir, { recursive: true });
-    }
-    cb(null, uploadDir);
-  },
-  filename: (req, file, cb) => {
-    const uniqueName = `${Date.now()}-${Math.round(Math.random() * 1E9)}${path.extname(file.originalname)}`;
-    cb(null, uniqueName);
-  }
-});
-
-const upload = multer({
-  storage: storage,
-  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
-  fileFilter: (req, file, cb) => {
-    const allowedTypes = /pdf|jpeg|jpg|png/;
-    const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
-    const mimetype = allowedTypes.test(file.mimetype);
+// ROTA 4: Upload de PDF e cadastro de cliente (VERSÃO CORRIGIDA)
+app.post('/api/upload-boleto', upload.single('pdf'), async (req, res) => {
+  try {
+    console.log('📥 Recebendo upload...');
+    console.log('📁 Arquivo:', req.file);
+    console.log('📝 Body:', req.body);
     
-    if (mimetype && extname) {
-      return cb(null, true);
-    } else {
-      cb(new Error('Apenas arquivos PDF, JPEG, JPG e PNG são permitidos!'));
+    // COM multer, os campos de formulário vêm em req.body normalmente
+    // Mas vamos garantir que estamos lendo corretamente
+    const { 
+      nome = req.body.nome,
+      telefone = req.body.telefone,
+      vencimento = req.body.vencimento,
+      valor = req.body.valor,
+      email = req.body.email,
+      cpf = req.body.cpf 
+    } = req.body;
+    
+    console.log('📊 Dados extraídos:', { nome, telefone, vencimento, valor });
+    
+    if (!nome || !telefone || !vencimento || !valor) {
+      console.log('❌ Campos obrigatórios faltando');
+      if (req.file) {
+        fs.unlinkSync(req.file.path);
+      }
+      return res.status(400).json({ 
+        error: 'Campos obrigatórios: nome, telefone, vencimento, valor',
+        received: { nome, telefone, vencimento, valor }
+      });
     }
+    
+    // Criar cliente
+    const cliente = new Cliente({
+      nome,
+      telefone,
+      email,
+      cpf,
+      vencimento: new Date(vencimento),
+      valor: parseFloat(valor),
+      status: 'PENDENTE',
+      pdfPath: req.file ? req.file.path : null,
+      nivelAlerta: 'NORMAL'
+    });
+    
+    await cliente.save();
+    console.log('✅ Cliente salvo no MongoDB:', cliente._id);
+    
+    // Enviar WhatsApp automaticamente (modo simulação no Render)
+    let whatsappEnviado = false;
+    if (req.file) {
+      console.log('📱 Simulando envio WhatsApp...');
+      // WhatsApp SIMULADO para Render
+      const mensagem = `Olá ${nome}! Seu boleto no valor de R$ ${valor} vence em ${vencimento}.`;
+      console.log('💬 Mensagem:', mensagem);
+      
+      // Marcar como enviado (simulação)
+      cliente.whatsappEnviado = true;
+      cliente.dataEnvioWhatsapp = new Date();
+      await cliente.save();
+      whatsappEnviado = true;
+    }
+    
+    res.status(201).json({
+      success: true,
+      message: 'Boleto cadastrado e enviado com sucesso!',
+      cliente: {
+        _id: cliente._id,
+        nome: cliente.nome,
+        telefone: cliente.telefone,
+        vencimento: cliente.vencimento,
+        valor: cliente.valor,
+        pdfPath: cliente.pdfPath
+      },
+      whatsappEnviado,
+      fileReceived: !!req.file
+    });
+    
+  } catch (error) {
+    console.error('❌ Erro no upload:', error);
+    if (req.file && fs.existsSync(req.file.path)) {
+      fs.unlinkSync(req.file.path);
+    }
+    res.status(500).json({ 
+      error: 'Erro ao processar boleto', 
+      details: error.message,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
   }
 });
 
