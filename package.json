@@ -14,7 +14,7 @@
     "cors": "^2.8.5",
     "dotenv": "^16.3.1",
     "multer": "^1.4.5-lts.1",
-    "venom-bot": "^4.3.7",
+    "venom-bot": "^5.0.3",  // ⬅️ MUDAR PARA 5.0.3 (IMPORTANTE!)
     "qrcode-terminal": "^0.12.0"
   },
   "devDependencies": {
