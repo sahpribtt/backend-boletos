@@ -61,6 +61,16 @@ class VenomService {
                         '--disable-gpu'
                     ],
                     createPathFileToken: true,
+                    // NO venom-service.js, procure esta parte:
+addBrowserArgs: ['--disable-web-security']
+
+// E ADICIONE DEPOIS (não esqueça da vírgula):
+addBrowserArgs: ['--disable-web-security'],
+disableSpins: true,
+disableWelcome: true,
+updatesLog: false,
+autoClose: false,
+logQR: false,  // Mude para false
                     addBrowserArgs: ['--disable-web-security']
                 },
                 (browser, waPage) => {
