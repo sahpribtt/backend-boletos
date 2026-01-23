@@ -47,6 +47,9 @@ app.options('*', cors(corsOptions));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// Servir arquivos estáticos da pasta public
+app.use(express.static('public'));
+
 // ============================================
 // 2. CONEXÃO COM MONGODB
 // ============================================
@@ -205,6 +208,41 @@ async function enviarWhatsappSimulado(numero, mensagem, arquivoPath = null) {
 // 6. ROTAS DA API
 // ============================================
 
+// ROTA: Página inicial
+app.get('/', (req, res) => {
+  res.send(`
+    <html>
+      <head><title>Sistema de Boletos WhatsApp</title></head>
+      <body style="font-family: Arial; text-align: center; padding: 50px;">
+        <h1>🚀 Sistema de Boletos WhatsApp</h1>
+        <p>Backend funcionando corretamente!</p>
+        <div style="margin: 30px;">
+          <a href="/public/qr.html" style="background: #667eea; color: white; padding: 15px 30px; border-radius: 8px; text-decoration: none; display: inline-block; margin: 10px;">
+            📱 Conectar WhatsApp
+          </a>
+          <a href="/api/test" style="background: #48bb78; color: white; padding: 15px 30px; border-radius: 8px; text-decoration: none; display: inline-block; margin: 10px;">
+            🔍 Testar API
+          </a>
+        </div>
+        <div style="margin-top: 40px; text-align: left; display: inline-block;">
+          <h3>Endpoints disponíveis:</h3>
+          <ul>
+            <li><code>GET /api/test</code> - Status do sistema</li>
+            <li><code>GET /api/venom/qr</code> - QR Code WhatsApp</li>
+            <li><code>GET /api/venom/status</code> - Status WhatsApp</li>
+            <li><code>GET /api/venom/debug</code> - Debug Venom</li>
+            <li><code>POST /api/venom/test</code> - Enviar mensagem teste</li>
+            <li><code>GET /api/clientes</code> - Listar clientes</li>
+            <li><code>POST /api/clientes</code> - Criar cliente</li>
+            <li><code>POST /api/upload-boleto</code> - Upload com WhatsApp</li>
+          </ul>
+        </div>
+      </body>
+    </html>
+  `);
+});
+
+// ROTA: Teste do servidor
 app.get('/api/test', (req, res) => {
   const venomStatus = venom.getStatus();
   
@@ -218,17 +256,158 @@ app.get('/api/test', (req, res) => {
     cors: 'Configurado para Netlify',
     instrucoes: venomStatus.connected 
       ? 'WhatsApp conectado! Envie mensagens.' 
-      : 'Acesse /api/venom/qr para conectar WhatsApp',
+      : 'Acesse /api/venom/qr ou /public/qr.html para conectar WhatsApp',
     endpoints: {
       qr: '/api/venom/qr',
       status: '/api/venom/status',
+      debug: '/api/venom/debug',
       sendTest: '/api/venom/test',
       clientes: '/api/clientes',
-      upload: '/api/upload-boleto'
+      upload: '/api/upload-boleto',
+      qrPage: '/public/qr.html'
     }
   });
 });
 
+// ROTA: Debug do Venom
+app.get('/api/venom/debug', async (req, res) => {
+  try {
+    console.log('=== DEBUG VENOM ===');
+    
+    // Tenta iniciar se não estiver
+    if (!venom.client) {
+      console.log('Iniciando Venom...');
+      await venom.start();
+      await new Promise(resolve => setTimeout(resolve, 10000));
+    }
+    
+    const status = venom.getStatus();
+    const qr = venom.getQRCode();
+    
+    res.json({
+      success: true,
+      timestamp: new Date().toISOString(),
+      venomStatus: status,
+      hasQR: !!qr,
+      memory: process.memoryUsage(),
+      uptime: process.uptime(),
+      nodeVersion: process.version,
+      message: status.connected ? 'CONECTADO' : 'AGUARDANDO',
+      instructions: !status.connected 
+        ? 'Acesse /public/qr.html para conectar' 
+        : 'Pronto para enviar mensagens!'
+    });
+    
+  } catch (error) {
+    console.error('DEBUG ERROR:', error);
+    res.json({
+      success: false,
+      error: error.message,
+      stack: error.stack,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+// ROTA: QR Code do WhatsApp
+app.get('/api/venom/qr', async (req, res) => {
+  try {
+    console.log('🔗 /api/venom/qr chamado');
+    
+    // Força iniciar se não tiver client
+    if (!venom.client) {
+      console.log('🚀 Iniciando Venom...');
+      await venom.start();
+    }
+    
+    // Aguarda 15 segundos para QR ser gerado
+    await new Promise(resolve => setTimeout(resolve, 15000));
+    
+    const qrData = venom.getQRCode();
+    
+    if (!qrData) {
+      console.log('⏳ QR ainda não gerado, tentando novamente...');
+      
+      // Tenta mais uma vez
+      await new Promise(resolve => setTimeout(resolve, 10000));
+      
+      const newQrData = venom.getQRCode();
+      
+      if (!newQrData) {
+        return res.json({
+          status: 'initializing',
+          message: 'WhatsApp está iniciando... Isso pode levar até 30 segundos.',
+          tip: 'Recarregue esta página em 10 segundos ou acesse /public/qr.html',
+          timestamp: new Date().toISOString(),
+          waitTime: 30
+        });
+      }
+      
+      return res.json({
+        status: 'qr_ready',
+        qrCode: newQrData.base64,
+        message: 'QR Code pronto! Escaneie com seu WhatsApp.',
+        timestamp: new Date().toISOString()
+      });
+    }
+    
+    console.log('✅ QR Code disponível');
+    res.json({
+      status: 'qr_ready',
+      qrCode: qrData.base64,
+      message: 'QR Code para WhatsApp',
+      timestamp: new Date().toISOString()
+    });
+    
+  } catch (error) {
+    console.error('❌ ERRO no endpoint QR:', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Erro ao gerar QR: ' + error.message,
+      tip: 'Tente acessar /api/venom/debug para mais informações',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+// ROTA: Status do Venom
+app.get('/api/venom/status', (req, res) => {
+  const status = venom.getStatus();
+  res.json({
+    connected: status.connected,
+    hasQR: status.hasQR,
+    hasClient: status.hasClient,
+    timestamp: new Date().toISOString(),
+    instructions: !status.connected 
+      ? 'Conecte em: /api/venom/qr ou /public/qr.html' 
+      : 'Pronto para enviar mensagens!'
+  });
+});
+
+// ROTA: Enviar mensagem teste
+app.post('/api/venom/test', async (req, res) => {
+  try {
+    const { number, message } = req.body;
+    
+    if (!number || !message) {
+      return res.status(400).json({
+        success: false,
+        error: 'Número e mensagem são obrigatórios'
+      });
+    }
+    
+    const result = await venom.sendText(number, message);
+    res.json(result);
+    
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// ROTA: Listar clientes
 app.get('/api/clientes', async (req, res) => {
   try {
     const clientes = await Cliente.find().sort({ vencimento: 1 });
@@ -238,6 +417,7 @@ app.get('/api/clientes', async (req, res) => {
   }
 });
 
+// ROTA: Criar cliente com WhatsApp
 app.post('/api/clientes', async (req, res) => {
   try {
     const { nome, telefone, vencimento, valor } = req.body;
@@ -283,6 +463,7 @@ app.post('/api/clientes', async (req, res) => {
   }
 });
 
+// ROTA: Upload de PDF com WhatsApp
 app.post('/api/upload-boleto', upload.single('pdf'), async (req, res) => {
   try {
     const { nome, telefone, vencimento, valor } = req.body;
@@ -346,125 +527,35 @@ app.post('/api/upload-boleto', upload.single('pdf'), async (req, res) => {
   }
 });
 
-app.get('/api/venom/qr', async (req, res) => {
-  try {
-    const qrData = venom.getQRCode();
-    
-    if (!qrData) {
-      await venom.start();
-      await new Promise(resolve => setTimeout(resolve, 3000));
-      
-      const newQrData = venom.getQRCode();
-      
-      if (!newQrData) {
-        return res.json({
-          status: 'initializing',
-          message: 'Aguarde... recarregue em 5 segundos.',
-          refreshIn: 5
-        });
-      }
-      
-      return res.json({
-        status: 'qr_ready',
-        qrCode: newQrData.base64,
-        message: 'Escaneie com seu WhatsApp'
-      });
-    }
-    
-    res.json({
-      status: 'qr_ready',
-      qrCode: qrData.base64,
-      message: 'QR Code para WhatsApp'
-    });
-    
-  } catch (error) {
-    res.status(500).json({
-      status: 'error',
-      message: error.message
-    });
-  }
-});
-
-app.get('/api/venom/status', (req, res) => {
-  const status = venom.getStatus();
-  res.json({
-    connected: status.connected,
-    hasQR: status.hasQR,
-    hasClient: status.hasClient,
-    timestamp: new Date().toISOString(),
-    instructions: !status.connected 
-      ? 'Conecte em: /api/venom/qr' 
-      : 'Pronto para enviar mensagens!'
-  });
-});
-
-app.post('/api/venom/test', async (req, res) => {
-  try {
-    const { number, message } = req.body;
-    
-    if (!number || !message) {
-      return res.status(400).json({
-        success: false,
-        error: 'Número e mensagem são obrigatórios'
-      });
-    }
-    
-    const result = await venom.sendText(number, message);
-    res.json(result);
-    
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      error: error.message
-    });
-  }
-});
-// ROTA DEBUG VENOM
-app.get('/api/venom/debug', async (req, res) => {
-  try {
-    console.log('🔧 DEBUG: Iniciando Venom manualmente...');
-    
-    // Tenta iniciar
-    await venom.start();
-    
-    // Aguarda mais tempo
-    await new Promise(resolve => setTimeout(resolve, 10000));
-    
-    const status = venom.getStatus();
-    const qr = venom.getQRCode();
-    
-    res.json({
-      success: true,
-      status: status,
-      hasQR: !!qr,
-      qrAvailable: qr ? 'SIM' : 'NÃO',
-      message: status.connected ? 'CONECTADO' : 'AGUARDANDO QR',
-      timestamp: new Date().toISOString()
-    });
-    
-  } catch (error) {
-    res.json({
-      success: false,
-      error: error.message,
-      stack: error.stack
-    });
-  }
-});
+// ============================================
+// 7. INICIAR SERVIDOR
+// ============================================
 app.listen(PORT, () => {
   console.log('='.repeat(60));
   console.log('🚀 SERVIDOR INICIADO');
   console.log('='.repeat(60));
   console.log(`📡 Porta: ${PORT}`);
   console.log(`🌐 URL: http://localhost:${PORT}`);
+  console.log(`🏠 Home: http://localhost:${PORT}/`);
+  console.log(`📱 QR Page: http://localhost:${PORT}/public/qr.html`);
   console.log(`🔗 API Test: http://localhost:${PORT}/api/test`);
+  console.log(`🔧 API Debug: http://localhost:${PORT}/api/venom/debug`);
   console.log(`📱 WhatsApp: VENOM BOT`);
-  console.log(`🔗 QR Code: http://localhost:${PORT}/api/venom/qr`);
   console.log(`✅ CORS: https://glaydsonsilva.netlify.app`);
   console.log(`💾 MongoDB: ${mongoose.connection.readyState === 1 ? 'Conectado' : 'Desconectado'}`);
   console.log('='.repeat(60));
   console.log('📋 Para conectar WhatsApp:');
-  console.log(`1. Acesse: http://localhost:${PORT}/api/venom/qr`);
+  console.log(`1. Acesse: http://localhost:${PORT}/public/qr.html`);
   console.log('2. Escaneie o QR Code com seu celular');
   console.log('3. Aguarde confirmação de conexão');
   console.log('='.repeat(60));
+});
+
+// Tratamento de erros
+process.on('uncaughtException', (error) => {
+  console.error('❌ Erro não capturado:', error);
+});
+
+process.on('unhandledRejection', (error) => {
+  console.error('❌ Promise rejeitada não tratada:', error);
 });
